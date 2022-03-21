@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>Shikinomori for Oculus - BezierVR</title>
+	<script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
+</head>
+<body>
+<script>'use strict'
+const initt = new Date().getTime();
+const tick = () => new Date().getTime() - initt;
+
+const vr = .3;
+
+AFRAME.registerComponent("main", {
+	init: function() {
+		//this.scene = document.querySelector('a-scene')
+		this.scene = scene;
+		this.p = new Array(4)
+		this.pnt = new Array(4)
+		this.lines = []
+		this.line1 = null;
+		this.line2 = null;
+
+		const init = () => {
+			for (let i = 0; i < 4; i++) {
+				if (this.pnt[i])
+					this.scene.removeChild(this.pnt[i])
+			}
+			for (let i = 0; i < this.lines.length; i++) {
+				this.scene.removeChild(this.lines[i])
+			}
+			this.lines = []
+			
+			const rndw = .6;
+			for (let i = 0; i < 4; i++) {
+				const x = Math.random() * rndw - rndw / 2;
+				const y = Math.random() * rndw + .5;
+				const z = Math.random() * rndw - .8;
+				this.p[i] = new THREE.Vector3(x, y, z)
+
+				const box = document.createElement('a-box');
+				box.setAttribute("color", "red");
+				box.setAttribute('position', this.p[i])
+				const size = 0.05
+				box.setAttribute('width', size)
+				box.setAttribute('height', size)
+				box.setAttribute('depth', size)
+				box.setAttribute('mixin', 'voxel');
+				this.scene.appendChild(box);
+				this.pnt[i] = box
+			}
+		}
+		/* ベジェ曲線 https://ja.wikipedia.org/wiki/%E3%83%99%E3%82%B8%E3%82%A7%E6%9B%B2%E7%B7%9A
+			p[4]
+			t = 0.5
+			p4 = p[0] + (p[1] - p[0]) * t
+			p5 = p[1] + (p[2] - p[1]) * t
+			p6 = p[2] + (p[3] - p[2]) * t
+			p7 = p4 + (p5 - p4) * t
+			p8 = p5 + (p6 - p5) * t
+			p9 = p7 + (p8 - p7) * t
+		*/
+		init()
+		this.calcBezier()
+
+		this.np = -1;
+		this.mp = -1;
+
+		const selectNear = (hand) => {
+			const off = me.getAttribute("position");
+			const hp0 = hand.getAttribute('position');
+			const hp = hp0.add(off);
+			let min = .5;
+			let np = -1;
+			for (let i = 0; i < 4; i++) {
+				const d = this.p[i].distanceTo(hp);
+				if (d < min) {
+					min = d;
+					np = i;
+				}
+			}
+			return np;
+		};
+
+		handright.addEventListener('triggerdown', (e) => {
+			this.np = selectNear(handright)
+		})
+		handright.addEventListener('triggerup', (e) => {
+			this.np = -1
+		})
+		handright.addEventListener('gripdown', (e) => {
+			this.np = selectNear(handright)
+		})
+		handright.addEventListener('gripup', (e) => {
+			this.np = -1
+		})
+		handleft.addEventListener('triggerdown', (e) => {
+			this.mp = selectNear(handleft)
+		})
+		handleft.addEventListener('triggerup', (e) => {
+			this.mp = -1
+		})
+		handleft.addEventListener('gripdown', (e) => {
+			this.mp = selectNear(handleft)
+		})
+		handleft.addEventListener('gripup', (e) => {
+			this.mp = -1
+		})
+		// B button
+		handright.addEventListener('bbuttondown', (e) => {
+			init()
+			this.calcBezier()
+		})
+
+		//
+    handright.addEventListener('axismove', (e) => {
+      //txt.setAttribute("value", "Stick  x:" + e.detail.axis[0].toFixed(2) + ", y:" + e.detail.axis[1].toFixed(2));
+      //txt.setAttribute("value", JSON.stringify(e.detail.axis.map(n => n.toFixed(2))));
+			const r = camera.getAttribute("rotation");
+      //txt.setAttribute("value", JSON.stringify(r));
+			const rx = e.detail.axis[2];
+			const ry = e.detail.axis[3];
+			const th = r.y / 180 * Math.PI;
+			const thr = Math.atan2(ry, rx) - th;
+			const v = Math.sqrt(rx * rx + ry * ry);
+			const rx2 = Math.cos(thr) * v;
+			const ry2 = Math.sin(thr) * v;
+			const hp = me.getAttribute('position')
+			hp.x += rx2 * vr;
+			hp.z += ry2 * vr;
+    });
+    handleft.addEventListener('axismove', (e) => {
+      //txt.setAttribute("value", "Stick  x:" + e.detail.axis[0].toFixed(2) + ", y:" + e.detail.axis[1].toFixed(2));
+			const rx = e.detail.axis[2];
+			const ry = e.detail.axis[3];
+			const hp = me.getAttribute('position')
+			hp.y -= ry * vr;
+			//const hr = me2.getAttribute('rotation');
+      //txt2.setAttribute("value", JSON.stringify(e.detail.axis.map(n => n.toFixed(2))));
+      //txt2.setAttribute("value", JSON.stringify(hr));
+      //txt2.setAttribute("value", JSON.stringify(camera.components["look-controls"].yawObject.rotation.y));
+			//hr.y += rx / 1;
+			//me2.setAttribute('rotation', hr)
+			//camera.components["look-controls"].yawObject.rotation.y += rx / 1;
+			//camera.components["look-controls"].pitchObject.rotation.x += rx / 1;
+    });
+
+	},
+	calcBezier: function() {
+		const f = (p0, p1, t) => {
+			const p0c = p0.clone()
+			const p1c = p1.clone()
+			return p0c.add(p1c.sub(p0c).multiplyScalar(t))
+		}
+
+		const div = 40
+		let op = this.p[0]
+		if (this.lines.length == 0) {
+			for (let i = 0; i < div + 2; i++) {
+				const line = document.createElement('a-entity')
+				this.scene.appendChild(line)
+				this.lines.push(line)
+			}
+			this.line1 = this.lines[div]
+			this.line2 = this.lines[div + 1]
+		}
+		let col = '#ff0000';
+		const p = this.p;
+		for (let i = 1; i <= div; i++) {
+			const t = 1 / div * i
+			const p4 = f(p[0], p[1], t)
+			const p5 = f(p[1], p[2], t)
+			const p6 = f(p[2], p[3], t)
+			const p7 = f(p4, p5, t)
+			const p8 = f(p5, p6, t)
+			const p9 = f(p7, p8, t)
+
+			let line = this.lines[i - 1]
+			line.setAttribute('line', { start: op, end: p9, color: col });
+			op = p9
+		}
+
+		col = '#80e000'
+		this.line1.setAttribute('line', { start: this.p[0], end: this.p[1], color: col });
+		this.line2.setAttribute('line', { start: this.p[3], end: this.p[2], color: col });
+	},
+	tick: function() {
+		/*
+		const hr = scene.getAttribute('rotation')
+		hr.y += tick() / 1000;
+		scene.setAttribute('rotation', hr)
+		*/
+
+		let flg = false;
+		const off = me.getAttribute("position");
+		if (this.np >= 0) {
+			const hp = handright.getAttribute('position')
+			this.p[this.np] = hp.clone().add(off);
+			this.pnt[this.np].setAttribute('position', this.p[this.np])
+			flg = true
+		}
+		if (this.mp >= 0) {
+			const hp = handleft.getAttribute('position')
+			this.p[this.mp] = hp.clone().add(off);
+			this.pnt[this.mp].setAttribute('position', this.p[this.mp])
+			flg = true
+		}
+		if (flg) {
+			this.calcBezier();
+		}
+	}
+});
+</script>
+<a-scene background="color:#335c7c" main renderer="colorManagement: true">
+	<a-assets>
+	<a-mixin id="voxel"
+		geometry="primitive: box; height: 0.1; width: 0.1; depth: 0.1"
+		material="shader: standard">
+	</a-mixin>
+	</a-assets>
+	<!--
+	<a-entity id="handleft" hand-tracking-controls="hand: left;"></a-entity>
+	<a-entity id="handright" hand-tracking-controls="hand: right;"></a-entity>
+	-->
+	<a-entity id="scene" position="0 0 0" rotation="0 0 0">
+	</a-entity>
+
+	<a-assets timeout="10000">
+    <a-asset-item id="base" src="./shikinomori-inner.glb"></a-asset-item>
+    <a-asset-item id="base2" src="./shikinomori.glb"></a-asset-item>
+  </a-assets>
+  <a-entity gltf-model="#base" position="-70 0 -40" scale="4.0 4.0 4.0"></a-entity>
+  <a-entity gltf-model="#base2" position="0 -1.6 2" scale="4.0 4.0 4.0"></a-entity>
+
+	<a-entity id="me" rotation="0 0 0">
+		<a-entity id="handleft" oculus-touch-controls="hand: left"></a-entity>
+		<a-entity id="handright" oculus-touch-controls="hand: right" laser-controls raycaster="showLine: true; far: .05" line="color: white; opacity: 0.75;"></a-entity>
+		<a-entity id="camera" camera look-controls position="0 0 0">
+			<a-text id="txt" value="" position="0 0 -1" scale="0.4 0.4 0.4" align="center" color="#000000"></a-text>
+			<a-text id="txt2" value="" position="0 .5 -1" scale="0.4 0.4 0.4" align="center" color="#000000"></a-text>
+		</a-entity>
+	</a-entity>
+	
+</a-scene>
+</body>
+</html>
